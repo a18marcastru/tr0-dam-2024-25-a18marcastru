@@ -261,39 +261,69 @@ app.put('/actualitzar', (req, res) => {
 app.get('/grafiques', (req, res) => {
   const pathDirGraphic = path.join(__dirname, 'Grafiques');
 
+  // Obtener la fecha actual en el formato deseado
   const fechaActual = new Date().toLocaleDateString('es-ES').replace(/\//g, '-');
 
-  const pythonProcess = spawn('py', ['generate_graph.py', fechaActual]);
+  // Ruta de la carpeta en Jocs con la fecha actual
+  const jsonDir = path.join(__dirname, 'Jocs', fechaActual);
+  
+  // Verificar si la carpeta en 'Jocs' para la fecha actual existe
+  if (!fs.existsSync(jsonDir)) {
+    console.log(`La carpeta ${jsonDir} no existeix. Es buscaran gràfics en la carpeta Grafiques.`);
 
-  pythonProcess.stderr.on('data', (data) => {
-    console.error(`Error del script de Python: ${data.toString()}`);
-  });
-
-  pythonProcess.stdout.on('data', (data) => {
-    console.log(`Salida del script: ${data.toString()}`);
-  });
-
-  pythonProcess.on('close', (code) => {
-    if (code !== 0) {
-      return res.status(500).send(`El proceso Python finalizó con el código ${code}`);
-    }
-
+    // Buscar imágenes en Grafiques
     fs.readdir(pathDirGraphic, (err, files) => {
       if (err) {
-        return res.status(500).json({ message: 'Error al leer el directorio de gráficos' });
+        return res.status(500).json({ message: 'Error en llegir el directori de Grafiques' });
       }
 
-      const imageFiles = files.filter(file => file.startsWith(fechaActual) && file.endsWith('.png'));
+      // Crear URLs para las imágenes encontradas
+      const imageUrls = files.map(file => `http://localhost:20999/grafiques/${file}`);
 
-      if (imageFiles.length === 0) {
-        return res.status(404).json({ message: 'No se encontraron gráficos' });
-      }
-
-      const imageUrls = imageFiles.map(file => `http://dam.inspedralbes.cat:20999/grafiques/${file}`);
-
-      res.json({ images: imageUrls });
+      return res.json({ images: imageUrls });
     });
-  });
+
+  } else {
+    // Si la carpeta de la fecha actual existe, ejecutar el proceso de Python para generar los gráficos
+    const pythonProcess = spawn('py', ['generate_graph.py', fechaActual]);
+
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`Error del script de Python: ${data.toString()}`);
+    });
+
+    pythonProcess.stdout.on('data', (data) => {
+      console.log(`Salida del script: ${data.toString()}`);
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        return res.status(500).send(`El proceso Python finalizó con el código ${code}`);
+      }
+
+      // Leer la carpeta Grafiques para verificar si se generó alguna imagen nueva
+      fs.readdir(pathDirGraphic, (err, files) => {
+        if (err) {
+          return res.status(500).json({ message: 'Error al leer el directorio de gráficos' });
+        }
+
+        let imageFiles = files.filter(file => file.startsWith(fechaActual) && file.endsWith('.png'));
+
+        if (imageFiles.length === 0) {
+          // Si no se encontraron imágenes de la fecha actual, buscar cualquier gráfico
+          imageFiles = files.filter(file => file.endsWith('.png'));
+        }
+
+        if (imageFiles.length === 0) {
+          return res.status(404).json({ message: 'No se encontraron gráficos generados.' });
+        }
+
+        // Devolver las URLs de las imágenes generadas
+        const imageUrls = imageFiles.map(file => `http://localhost:20999/grafiques/${file}`);
+
+        res.json({ images: imageUrls });
+      });
+    });
+  }
 });
 
 app.listen(port, () => {
